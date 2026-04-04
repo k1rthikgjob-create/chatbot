@@ -110,15 +110,13 @@ app.post('/webhook', async (req, res) => {
       }
 
       try {
-        const file = await axios({
-          method: 'GET',
-          url: mediaUrl,
-          responseType: 'arraybuffer',
-          auth: {
-            username: process.env.TWILIO_ACCOUNT_SID,
-            password: process.env.TWILIO_AUTH_TOKEN
-          }
-        });
+        const file = await axios.get(mediaUrl, {
+  responseType: 'arraybuffer',
+  auth: {
+    username: process.env.TWILIO_ACCOUNT_SID.trim(),
+    password: process.env.TWILIO_AUTH_TOKEN.trim()
+  }
+});
 
         const base64 = Buffer.from(file.data).toString('base64');
 
