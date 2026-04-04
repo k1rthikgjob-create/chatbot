@@ -100,22 +100,18 @@ app.post('/webhook', async (req, res) => {
 
   try {
 
-    let mediaUrl = req.body.MediaUrl0;
+    const mediaUrl = req.body.MediaUrl0;
 
-    console.log("📎 Original Media URL:", mediaUrl);
+    console.log("📎 Media URL:", mediaUrl);
 
-    // 🔥 IMPORTANT FIX → append extension
-    if (!mediaUrl.includes('.pdf')) {
-      mediaUrl = mediaUrl + ".pdf";
-    }
-
-    console.log("📎 Final Media URL:", mediaUrl);
+    // ✅ DO NOT MODIFY URL
 
     const file = await axios.get(mediaUrl, {
       responseType: 'arraybuffer',
-      auth: {
-        username: process.env.TWILIO_ACCOUNT_SID,
-        password: process.env.TWILIO_AUTH_TOKEN
+      headers: {
+        Authorization: `Basic ${Buffer.from(
+          process.env.TWILIO_ACCOUNT_SID + ":" + process.env.TWILIO_AUTH_TOKEN
+        ).toString("base64")}`
       }
     });
 
@@ -140,7 +136,7 @@ app.post('/webhook', async (req, res) => {
     return reply(res, twiml, "✅ Application submitted successfully!");
 
   } catch (err) {
-    console.error("❌ FINAL ERROR:", err.message);
+    console.error("❌ FINAL ERROR:", err.response?.status, err.message);
     return reply(res, twiml, "❌ Failed to process resume. Try again.");
   }
 }
