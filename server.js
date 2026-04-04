@@ -81,47 +81,53 @@ app.post('/webhook', async (req, res) => {
     }
 
     // STEP 6: RESUME UPLOAD
-    if (user.step === 6 && mediaUrl) {
+   // STEP 6: RESUME UPLOAD
+if (user.step === 6) {
 
-      const response = await axios({
-        method: 'GET',
-        url: mediaUrl,
-        responseType: 'arraybuffer',
-        auth: {
-          username: process.env.TWILIO_ACCOUNT_SID,
-          password: process.env.TWILIO_AUTH_TOKEN
-        }
-      });
+  const numMedia = parseInt(req.body.NumMedia || "0");
 
-      const fileBuffer = response.data;
+  if (numMedia === 0) {
+    return reply(res, twiml, "❗ Please upload a resume file (PDF/DOC)");
+  }
 
-      // Save file as Base64 (better for Railway)
-      const resumeBase64 = fileBuffer.toString('base64');
+  try {
+    const mediaUrl = req.body.MediaUrl0;
 
-      await pool.query(
-        `INSERT INTO candidates 
-        (name, email, phone, position, experience, resume_url)
-        VALUES ($1, $2, $3, $4, $5, $6)`,
-        [
-          user.data.name,
-          user.data.email,
-          user.data.phone,
-          user.data.position,
-          user.data.experience,
-          resumeBase64
-        ]
-      );
+    console.log("📎 Media URL:", mediaUrl);
 
-      delete sessions[from];
+    const file = await axios({
+      method: 'GET',
+      url: mediaUrl,
+      responseType: 'arraybuffer',
+      auth: {
+        username: process.env.TWILIO_ACCOUNT_SID,
+        password: process.env.TWILIO_AUTH_TOKEN
+      }
+    });
 
-      return sendResponse(twiml, res, "✅ Application submitted successfully!");
-    }
+    const base64 = Buffer.from(file.data).toString('base64');
 
-    return sendResponse(twiml, res, "❗ Type 'hi' to start application");
+    await pool.query(
+      `INSERT INTO candidates 
+      (name,email,phone,position,experience,resume_url)
+      VALUES ($1,$2,$3,$4,$5,$6)`,
+      [
+        user.data.name,
+        user.data.email,
+        user.data.phone,
+        user.data.position,
+        user.data.experience,
+        base64
+      ]
+    );
 
-  } catch (error) {
-    console.error("❌ ERROR:", error);
-    return sendResponse(twiml, res, "❌ Something went wrong. Try again.");
+    delete sessions[from];
+
+    return reply(res, twiml, "✅ Application submitted successfully!");
+
+  } catch (err) {
+    console.error("❌ Resume Upload Error:", err.message);
+    return reply(res, twiml, "❌ Failed to process resume. Try again.");
   }
 });
 
