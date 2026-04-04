@@ -90,60 +90,71 @@ app.post('/webhook', async (req, res) => {
     }
 
     // STEP 6: RESUME UPLOAD
-    if (user.step === 6) {
+   if (user.step === 6) {
 
-      const numMedia = parseInt(req.body.NumMedia || "0");
+  const numMedia = parseInt(req.body.NumMedia || "0");
 
-      if (numMedia === 0) {
-        return reply(res, twiml, "❗ Please upload a resume file (PDF/DOC)");
-      }
-
-      const mediaUrl = req.body.MediaUrl0;
-      const contentType = req.body.MediaContentType0;
-
-      console.log("📎 Media URL:", mediaUrl);
-      console.log("📄 Content Type:", contentType);
-
-      // Optional file validation
-      if (!contentType.includes("pdf") && !contentType.includes("word")) {
-        return reply(res, twiml, "❗ Only PDF or DOC files allowed");
-      }
-
-      try {
-        const file = await axios.get(mediaUrl, {
-  responseType: 'arraybuffer',
-  auth: {
-    username: process.env.TWILIO_ACCOUNT_SID.trim(),
-    password: process.env.TWILIO_AUTH_TOKEN.trim()
+  if (numMedia === 0) {
+    return reply(res, twiml, "❗ Please upload a resume file (PDF/DOC)");
   }
-});
 
-        const base64 = Buffer.from(file.data).toString('base64');
+  try {
 
-        await pool.query(
-          `INSERT INTO candidates 
-          (name,email,phone,position,experience,resume_url)
-          VALUES ($1,$2,$3,$4,$5,$6)`,
-          [
-            user.data.name,
-            user.data.email,
-            user.data.phone,
-            user.data.position,
-            user.data.experience,
-            base64
-          ]
-        );
+    const client = twilio(
+      process.env.TWILIO_ACCOUNT_SID,
+      process.env.TWILIO_AUTH_TOKEN
+    );
 
-        delete sessions[from];
+    const messageSid = req.body.MessageSid;
+    const mediaSid = req.body.MediaSid0;
 
-        return reply(res, twiml, "✅ Application submitted successfully!");
+    console.log("Message SID:", messageSid);
+    console.log("Media SID:", mediaSid);
 
-      } catch (err) {
-        console.error("❌ Resume Upload Error:", err);
-        return reply(res, twiml, "❌ Failed to process resume. Try again.");
+    // 🔥 Fetch media metadata
+    const media = await client.messages(messageSid)
+      .media(mediaSid)
+      .fetch();
+
+    // 🔥 Construct proper URL
+    const mediaUrl = `https://api.twilio.com${media.uri.replace('.json', '')}`;
+
+    console.log("Final Media URL:", mediaUrl);
+
+    // 🔥 Download file with auth
+    const file = await axios.get(mediaUrl, {
+      responseType: 'arraybuffer',
+      auth: {
+        username: process.env.TWILIO_ACCOUNT_SID,
+        password: process.env.TWILIO_AUTH_TOKEN
       }
-    }
+    });
 
+    const base64 = Buffer.from(file.data).toString('base64');
+
+    await pool.query(
+      `INSERT INTO candidates 
+      (name,email,phone,position,experience,resume_url)
+      VALUES ($1,$2,$3,$4,$5,$6)`,
+      [
+        user.data.name,
+        user.data.email,
+        user.data.phone,
+        user.data.position,
+        user.data.experience,
+        base64
+      ]
+    );
+
+    delete sessions[from];
+
+    return reply(res, twiml, "✅ Application submitted successfully!");
+
+  } catch (err) {
+    console.error("❌ FINAL ERROR:", err.response?.status, err.message);
+    return reply(res, twiml, "❌ Failed to process resume. Try again.");
+  }
+}
     // DEFAULT
     return reply(res, twiml, "❗ Type 'hi' to start application");
 
