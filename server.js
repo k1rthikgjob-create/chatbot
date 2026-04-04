@@ -90,38 +90,27 @@ app.post('/webhook', async (req, res) => {
     }
 
     // STEP 6: RESUME UPLOAD
-   if (user.step === 6) {
+ if (user.step === 6) {
 
   const numMedia = parseInt(req.body.NumMedia || "0");
 
   if (numMedia === 0) {
-    return reply(res, twiml, "❗ Please upload a resume file (PDF/DOC)");
+    return reply(res, twiml, "❗ Please upload a resume (PDF/DOC)");
   }
 
   try {
 
-    const client = twilio(
-      process.env.TWILIO_ACCOUNT_SID,
-      process.env.TWILIO_AUTH_TOKEN
-    );
+    let mediaUrl = req.body.MediaUrl0;
 
-    const messageSid = req.body.MessageSid;
-    const mediaSid = req.body.MediaSid0;
+    console.log("📎 Original Media URL:", mediaUrl);
 
-    console.log("Message SID:", messageSid);
-    console.log("Media SID:", mediaSid);
+    // 🔥 IMPORTANT FIX → append extension
+    if (!mediaUrl.includes('.pdf')) {
+      mediaUrl = mediaUrl + ".pdf";
+    }
 
-    // 🔥 Fetch media metadata
-    const media = await client.messages(messageSid)
-      .media(mediaSid)
-      .fetch();
+    console.log("📎 Final Media URL:", mediaUrl);
 
-    // 🔥 Construct proper URL
-    const mediaUrl = `https://api.twilio.com${media.uri.replace('.json', '')}`;
-
-    console.log("Final Media URL:", mediaUrl);
-
-    // 🔥 Download file with auth
     const file = await axios.get(mediaUrl, {
       responseType: 'arraybuffer',
       auth: {
@@ -151,7 +140,7 @@ app.post('/webhook', async (req, res) => {
     return reply(res, twiml, "✅ Application submitted successfully!");
 
   } catch (err) {
-    console.error("❌ FINAL ERROR:", err.response?.status, err.message);
+    console.error("❌ FINAL ERROR:", err.message);
     return reply(res, twiml, "❌ Failed to process resume. Try again.");
   }
 }
