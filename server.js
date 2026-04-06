@@ -11,7 +11,11 @@ app.use(express.json());
 
 // ================= DB =================
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  host: "caboose.proxy.rlwy.net",
+  port: 39328,
+  user: "postgres",
+  password: process.env.PGPASSWORD, // ✅ from Railway
+  database: "railway",
   ssl: { rejectUnauthorized: false },
 });
 
@@ -54,31 +58,31 @@ app.post('/webhook', async (req, res) => {
     if (incomingMsg.toLowerCase() === 'hi') {
       user.step = 1;
       return reply(res, twiml,
-        "👋 *Welcome to Job Application Bot*\n\n🧑 Enter your *Full Name*:");
+        "👋 Welcome to Job Bot\n\nEnter your Name:");
     }
 
     if (user.step === 1) {
       user.data.name = incomingMsg;
       user.step = 2;
-      return reply(res, twiml, "📧 Enter your *Email*:");
+      return reply(res, twiml, "📧 Enter Email:");
     }
 
     if (user.step === 2) {
       user.data.email = incomingMsg;
       user.step = 3;
-      return reply(res, twiml, "📱 Enter your *Phone Number*:");
+      return reply(res, twiml, "📱 Enter Phone:");
     }
 
     if (user.step === 3) {
       user.data.phone = incomingMsg;
       user.step = 4;
-      return reply(res, twiml, "💼 Enter *Position*:");
+      return reply(res, twiml, "💼 Enter Position:");
     }
 
     if (user.step === 4) {
       user.data.position = incomingMsg;
       user.step = 5;
-      return reply(res, twiml, "📊 Enter *Experience (years)*:");
+      return reply(res, twiml, "📊 Experience (years):");
     }
 
     if (user.step === 5) {
@@ -102,20 +106,15 @@ app.post('/webhook', async (req, res) => {
       delete sessions[from];
 
       return reply(res, twiml,
-        "🎉 *Application Submitted!*\n\nWe will contact you soon 🙌");
+        "✅ Application Submitted!");
     }
 
-    return reply(res, twiml, "❗ Type *HI* to start");
+    return reply(res, twiml, "Type HI to start");
 
   } catch (error) {
-    console.error("❌ ERROR:", error);
-    return reply(res, twiml, "⚠️ Something went wrong.");
+    console.error("❌ ERROR:", error.message);
+    return reply(res, twiml, "⚠️ Error occurred");
   }
-});
-
-// ================= HEALTH CHECK =================
-app.get('/', (req, res) => {
-  res.send("🚀 Chatbot is running...");
 });
 
 // ================= SERVER =================
