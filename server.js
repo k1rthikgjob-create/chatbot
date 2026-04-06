@@ -3,7 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const twilio = require('twilio');
 const { Pool } = require('pg');
-const axios = require('axios'); // ✅ NEW
+const axios = require('axios');
 
 const app = express();
 
@@ -20,7 +20,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// ✅ CHECK DB CONNECTION
+// ================= DB CHECK =================
 (async () => {
   try {
     await pool.query('SELECT 1');
@@ -33,7 +33,7 @@ const pool = new Pool({
 // ================= SESSION STORE =================
 const sessions = {};
 
-// ================= HELPER FUNCTION =================
+// ================= HELPER =================
 function reply(res, twiml, message) {
   twiml.message(message);
   res.set('Content-Type', 'text/xml');
@@ -48,6 +48,7 @@ app.post('/webhook', async (req, res) => {
 
   const twiml = new twilio.twiml.MessagingResponse();
 
+  // INIT SESSION
   if (!sessions[from]) {
     sessions[from] = { step: 0, data: {} };
   }
@@ -56,12 +57,28 @@ app.post('/webhook', async (req, res) => {
 
   try {
 
-    // START
-    if (incomingMsg.toLowerCase() === 'hi') {
+    // 🔄 RESTART COMMAND
+    if (incomingMsg.toLowerCase() === 'restart') {
+      sessions[from] = { step: 1, data: {} };
+      return reply(res, twiml, "🔄 Restarted\n\nEnter your Name:");
+    }
+
+    // 🚀 START (ONLY IF NOT STARTED)
+    if (
+      (incomingMsg.toLowerCase() === 'hi' || incomingMsg.toLowerCase() === 'start')
+      && user.step === 0
+    ) {
       user.step = 1;
       return reply(res, twiml,
         "👋 Welcome to Job Bot\n\nEnter your Name:");
     }
+
+    // ❌ BLOCK RANDOM "HI" DURING FLOW
+    if (incomingMsg.toLowerCase() === 'hi' && user.step !== 0) {
+      return reply(res, twiml, "⚠️ You are already in the application process. Type 'restart' to begin again.");
+    }
+
+    // ================= FLOW =================
 
     // NAME
     if (user.step === 1) {
@@ -95,9 +112,7 @@ app.post('/webhook', async (req, res) => {
     if (user.step === 5) {
       user.data.experience = incomingMsg;
       user.step = 6;
-
-      return reply(res, twiml,
-        "📎 Please upload your resume (PDF)");
+      return reply(res, twiml, "📎 Please upload your resume (PDF)");
     }
 
     // RESUME UPLOAD
@@ -106,10 +121,10 @@ app.post('/webhook', async (req, res) => {
       const mediaUrl = req.body.MediaUrl0;
 
       if (!mediaUrl) {
-        return reply(res, twiml, "⚠️ Please upload your resume file");
+        return reply(res, twiml, "⚠️ Please upload your resume file (PDF)");
       }
 
-      // Download resume from Twilio
+      // DOWNLOAD FILE FROM TWILIO
       const response = await axios.get(mediaUrl, {
         responseType: 'arraybuffer',
         auth: {
@@ -120,7 +135,7 @@ app.post('/webhook', async (req, res) => {
 
       const fileBuffer = response.data;
 
-      console.log("📡 Saving to DB with resume...");
+      console.log("📡 Saving to DB:", user.data);
 
       const result = await pool.query(
         `INSERT INTO candidates 
@@ -145,15 +160,17 @@ app.post('/webhook', async (req, res) => {
         `✅ Application Submitted!\n\n🆔 Application ID: ${applicationId}\n\n📥 Download Resume:\n${req.protocol}://${req.get('host')}/resume/${applicationId}`);
     }
 
-    return reply(res, twiml, "Type HI to start");
+    // DEFAULT
+    return reply(res, twiml,
+      "⚠️ Please follow the steps.\n\nType 'HI' to start or 'restart' to begin again.");
 
   } catch (error) {
     console.error("❌ ERROR:", error.message);
-    return reply(res, twiml, "⚠️ Error occurred");
+    return reply(res, twiml, "⚠️ Something went wrong. Try again.");
   }
 });
 
-// ================= RESUME DOWNLOAD API =================
+// ================= RESUME DOWNLOAD =================
 app.get('/resume/:id', async (req, res) => {
   try {
     const { id } = req.params;
