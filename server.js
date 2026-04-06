@@ -10,12 +10,15 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 // ================= DB =================
+
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  ssl: process.env.DATABASE_URL?.includes("localhost")
+    ? false
+    : { rejectUnauthorized: false },
 });
+
 
 // ================= SESSION STORE =================
 const sessions = {};
@@ -121,7 +124,9 @@ app.post('/webhook', async (req, res) => {
 app.get('/', (req, res) => {
   res.send("🚀 Chatbot is running...");
 });
-
+pool.connect()
+  .then(() => console.log("✅ Connected to PostgreSQL"))
+  .catch(err => console.error("❌ DB Connection Failed:", err.message));
 // ================= SERVER =================
 const PORT = process.env.PORT || 3000;
 
