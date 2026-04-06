@@ -10,15 +10,20 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 // ================= DB =================
-
-
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes("localhost")
-    ? false
-    : { rejectUnauthorized: false },
+  ssl: { rejectUnauthorized: false },
 });
 
+// ✅ CHECK DB CONNECTION
+(async () => {
+  try {
+    await pool.query('SELECT 1');
+    console.log("✅ Connected to PostgreSQL");
+  } catch (err) {
+    console.error("❌ DB Connection Failed:", err.message);
+  }
+})();
 
 // ================= SESSION STORE =================
 const sessions = {};
@@ -46,50 +51,41 @@ app.post('/webhook', async (req, res) => {
 
   try {
 
-    // STEP 0: START
     if (incomingMsg.toLowerCase() === 'hi') {
       user.step = 1;
       return reply(res, twiml,
-        "👋 *Welcome to Job Application Bot*\n\nLet's get started!\n\n🧑 Enter your *Full Name*:");
+        "👋 *Welcome to Job Application Bot*\n\n🧑 Enter your *Full Name*:");
     }
 
-    // STEP 1: NAME
     if (user.step === 1) {
       user.data.name = incomingMsg;
       user.step = 2;
-      return reply(res, twiml,
-        "📧 Enter your *Email Address*:");
+      return reply(res, twiml, "📧 Enter your *Email*:");
     }
 
-    // STEP 2: EMAIL
     if (user.step === 2) {
       user.data.email = incomingMsg;
       user.step = 3;
-      return reply(res, twiml,
-        "📱 Enter your *Phone Number*:");
+      return reply(res, twiml, "📱 Enter your *Phone Number*:");
     }
 
-    // STEP 3: PHONE
     if (user.step === 3) {
       user.data.phone = incomingMsg;
       user.step = 4;
-      return reply(res, twiml,
-        "💼 Enter the *Position* you're applying for:");
+      return reply(res, twiml, "💼 Enter *Position*:");
     }
 
-    // STEP 4: POSITION
     if (user.step === 4) {
       user.data.position = incomingMsg;
       user.step = 5;
-      return reply(res, twiml,
-        "📊 Enter your *Experience (in years)*:");
+      return reply(res, twiml, "📊 Enter *Experience (years)*:");
     }
 
-    // STEP 5: EXPERIENCE → SAVE TO DB
     if (user.step === 5) {
       user.data.experience = incomingMsg;
 
-      // ✅ STORE IN DATABASE
+      console.log("📡 Saving to DB:", user.data);
+
       await pool.query(
         `INSERT INTO candidates 
         (name, email, phone, position, experience)
@@ -106,17 +102,14 @@ app.post('/webhook', async (req, res) => {
       delete sessions[from];
 
       return reply(res, twiml,
-        "🎉 *Application Submitted Successfully!*\n\n✅ Our team will contact you soon.\n\nThank you 🙌");
+        "🎉 *Application Submitted!*\n\nWe will contact you soon 🙌");
     }
 
-    // DEFAULT
-    return reply(res, twiml,
-      "❗ Type *HI* to start your job application");
+    return reply(res, twiml, "❗ Type *HI* to start");
 
   } catch (error) {
     console.error("❌ ERROR:", error);
-    return reply(res, twiml,
-      "⚠️ Something went wrong. Please try again.");
+    return reply(res, twiml, "⚠️ Something went wrong.");
   }
 });
 
@@ -124,9 +117,7 @@ app.post('/webhook', async (req, res) => {
 app.get('/', (req, res) => {
   res.send("🚀 Chatbot is running...");
 });
-pool.connect()
-  .then(() => console.log("✅ Connected to PostgreSQL"))
-  .catch(err => console.error("❌ DB Connection Failed:", err.message));
+
 // ================= SERVER =================
 const PORT = process.env.PORT || 3000;
 
