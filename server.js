@@ -3,6 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const twilio = require('twilio');
 const { Pool } = require('pg');
+const axios = require('axios'); // ✅ NEW
 
 const app = express();
 
@@ -14,7 +15,7 @@ const pool = new Pool({
   host: "caboose.proxy.rlwy.net",
   port: 39328,
   user: "postgres",
-  password: process.env.PGPASSWORD, // ✅ from Railway
+  password: process.env.PGPASSWORD,
   database: "railway",
   ssl: { rejectUnauthorized: false },
 });
@@ -55,58 +56,93 @@ app.post('/webhook', async (req, res) => {
 
   try {
 
+    // START
     if (incomingMsg.toLowerCase() === 'hi') {
       user.step = 1;
       return reply(res, twiml,
         "👋 Welcome to Job Bot\n\nEnter your Name:");
     }
 
+    // NAME
     if (user.step === 1) {
       user.data.name = incomingMsg;
       user.step = 2;
       return reply(res, twiml, "📧 Enter Email:");
     }
 
+    // EMAIL
     if (user.step === 2) {
       user.data.email = incomingMsg;
       user.step = 3;
       return reply(res, twiml, "📱 Enter Phone:");
     }
 
+    // PHONE
     if (user.step === 3) {
       user.data.phone = incomingMsg;
       user.step = 4;
       return reply(res, twiml, "💼 Enter Position:");
     }
 
+    // POSITION
     if (user.step === 4) {
       user.data.position = incomingMsg;
       user.step = 5;
       return reply(res, twiml, "📊 Experience (years):");
     }
 
+    // EXPERIENCE → ASK RESUME
     if (user.step === 5) {
       user.data.experience = incomingMsg;
+      user.step = 6;
 
-      console.log("📡 Saving to DB:", user.data);
+      return reply(res, twiml,
+        "📎 Please upload your resume (PDF)");
+    }
 
-      await pool.query(
+    // RESUME UPLOAD
+    if (user.step === 6) {
+
+      const mediaUrl = req.body.MediaUrl0;
+
+      if (!mediaUrl) {
+        return reply(res, twiml, "⚠️ Please upload your resume file");
+      }
+
+      // Download resume from Twilio
+      const response = await axios.get(mediaUrl, {
+        responseType: 'arraybuffer',
+        auth: {
+          username: process.env.TWILIO_ACCOUNT_SID,
+          password: process.env.TWILIO_AUTH_TOKEN
+        }
+      });
+
+      const fileBuffer = response.data;
+
+      console.log("📡 Saving to DB with resume...");
+
+      const result = await pool.query(
         `INSERT INTO candidates 
-        (name, email, phone, position, experience)
-        VALUES ($1,$2,$3,$4,$5)`,
+        (name, email, phone, position, experience, resume)
+        VALUES ($1,$2,$3,$4,$5,$6)
+        RETURNING id`,
         [
           user.data.name,
           user.data.email,
           user.data.phone,
           user.data.position,
-          user.data.experience
+          user.data.experience,
+          fileBuffer
         ]
       );
+
+      const applicationId = result.rows[0].id;
 
       delete sessions[from];
 
       return reply(res, twiml,
-        "✅ Application Submitted!");
+        `✅ Application Submitted!\n\n🆔 Application ID: ${applicationId}\n\n📥 Download Resume:\n${req.protocol}://${req.get('host')}/resume/${applicationId}`);
     }
 
     return reply(res, twiml, "Type HI to start");
@@ -114,6 +150,31 @@ app.post('/webhook', async (req, res) => {
   } catch (error) {
     console.error("❌ ERROR:", error.message);
     return reply(res, twiml, "⚠️ Error occurred");
+  }
+});
+
+// ================= RESUME DOWNLOAD API =================
+app.get('/resume/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      'SELECT resume FROM candidates WHERE id=$1',
+      [id]
+    );
+
+    if (!result.rows.length || !result.rows[0].resume) {
+      return res.status(404).send('Resume not found');
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=resume_${id}.pdf`);
+
+    res.send(result.rows[0].resume);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error fetching resume');
   }
 });
 
