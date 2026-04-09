@@ -12,6 +12,16 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+// ✅ CHECK DB CONNECTION
+(async () => {
+  try {
+    await pool.query('SELECT 1');
+    console.log("✅ Connected to PostgreSQL");
+  } catch (err) {
+    console.error("❌ DB Connection Failed:", err.message);
+  }
+})();
+
 // ================= SESSION =================
 const sessions = {};
 
@@ -25,6 +35,7 @@ app.get('/webhook', (req, res) => {
     req.query['hub.mode'] === 'subscribe' &&
     req.query['hub.verify_token'] === VERIFY_TOKEN
   ) {
+    console.log("✅ Webhook verified");
     return res.status(200).send(req.query['hub.challenge']);
   }
   res.sendStatus(403);
@@ -32,27 +43,32 @@ app.get('/webhook', (req, res) => {
 
 // ================= SEND MESSAGE =================
 async function sendMessage(to, message) {
-  await axios.post(
-    `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`,
-    {
-      messaging_product: "whatsapp",
-      to,
-      text: { body: message }
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${ACCESS_TOKEN}`,
-        "Content-Type": "application/json"
+  try {
+    await axios.post(
+      `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to,
+        text: { body: message }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${ACCESS_TOKEN}`,
+          "Content-Type": "application/json"
+        }
       }
-    }
-  );
+    );
+  } catch (err) {
+    console.error("❌ Meta Send Error:", err.response?.data || err.message);
+  }
 }
 
 // ================= RECEIVE MESSAGE =================
 app.post('/webhook', async (req, res) => {
   try {
-    const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+    console.log("📩 Incoming:", JSON.stringify(req.body));
 
+    const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
     if (!message) return res.sendStatus(200);
 
     const from = message.from;
@@ -64,7 +80,6 @@ app.post('/webhook', async (req, res) => {
 
     const user = sessions[from];
 
-    // ===== FLOW =====
     if (incomingMsg?.toLowerCase() === 'hi') {
       user.step = 1;
       await sendMessage(from, "👋 Welcome to Job Bot\n\nEnter your Name:");
