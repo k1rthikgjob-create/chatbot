@@ -1,94 +1,106 @@
 require('dotenv').config();
-
 const express = require('express');
-const twilio = require('twilio');
+const axios = require('axios');
 const { Pool } = require('pg');
 
 const app = express();
-
-app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 // ================= DB =================
 const pool = new Pool({
-  host: "caboose.proxy.rlwy.net",
-  port: 39328,
-  user: "postgres",
-  password: process.env.PGPASSWORD, // ✅ from Railway
-  database: "railway",
+  connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
-// ✅ CHECK DB CONNECTION
-(async () => {
-  try {
-    await pool.query('SELECT 1');
-    console.log("✅ Connected to PostgreSQL");
-  } catch (err) {
-    console.error("❌ DB Connection Failed:", err.message);
-  }
-})();
-
-// ================= SESSION STORE =================
+// ================= SESSION =================
 const sessions = {};
 
-// ================= HELPER FUNCTION =================
-function reply(res, twiml, message) {
-  twiml.message(message);
-  res.set('Content-Type', 'text/xml');
-  return res.send(twiml.toString());
+const VERIFY_TOKEN = "my_verify_token_123";
+const ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+
+// ================= WEBHOOK VERIFY =================
+app.get('/webhook', (req, res) => {
+  if (
+    req.query['hub.mode'] === 'subscribe' &&
+    req.query['hub.verify_token'] === VERIFY_TOKEN
+  ) {
+    return res.status(200).send(req.query['hub.challenge']);
+  }
+  res.sendStatus(403);
+});
+
+// ================= SEND MESSAGE =================
+async function sendMessage(to, message) {
+  await axios.post(
+    `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`,
+    {
+      messaging_product: "whatsapp",
+      to,
+      text: { body: message }
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${ACCESS_TOKEN}`,
+        "Content-Type": "application/json"
+      }
+    }
+  );
 }
 
-// ================= WEBHOOK =================
+// ================= RECEIVE MESSAGE =================
 app.post('/webhook', async (req, res) => {
-
-  const incomingMsg = (req.body.Body || '').trim();
-  const from = req.body.From;
-
-  const twiml = new twilio.twiml.MessagingResponse();
-
-  if (!sessions[from]) {
-    sessions[from] = { step: 0, data: {} };
-  }
-
-  const user = sessions[from];
-
   try {
+    const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
 
-    if (incomingMsg.toLowerCase() === 'hi') {
+    if (!message) return res.sendStatus(200);
+
+    const from = message.from;
+    const incomingMsg = message.text?.body?.trim();
+
+    if (!sessions[from]) {
+      sessions[from] = { step: 0, data: {} };
+    }
+
+    const user = sessions[from];
+
+    // ===== FLOW =====
+    if (incomingMsg?.toLowerCase() === 'hi') {
       user.step = 1;
-      return reply(res, twiml,
-        "👋 Welcome to Job Bot\n\nEnter your Name:");
+      await sendMessage(from, "👋 Welcome to Job Bot\n\nEnter your Name:");
+      return res.sendStatus(200);
     }
 
     if (user.step === 1) {
       user.data.name = incomingMsg;
       user.step = 2;
-      return reply(res, twiml, "📧 Enter Email:");
+      await sendMessage(from, "📧 Enter Email:");
+      return res.sendStatus(200);
     }
 
     if (user.step === 2) {
       user.data.email = incomingMsg;
       user.step = 3;
-      return reply(res, twiml, "📱 Enter Phone:");
+      await sendMessage(from, "📱 Enter Phone:");
+      return res.sendStatus(200);
     }
 
     if (user.step === 3) {
       user.data.phone = incomingMsg;
       user.step = 4;
-      return reply(res, twiml, "💼 Enter Position:");
+      await sendMessage(from, "💼 Enter Position:");
+      return res.sendStatus(200);
     }
 
     if (user.step === 4) {
       user.data.position = incomingMsg;
       user.step = 5;
-      return reply(res, twiml, "📊 Experience (years):");
+      await sendMessage(from, "📊 Experience (years):");
+      return res.sendStatus(200);
     }
 
     if (user.step === 5) {
       user.data.experience = incomingMsg;
-
-      console.log("📡 Saving to DB:", user.data);
 
       await pool.query(
         `INSERT INTO candidates 
@@ -105,21 +117,20 @@ app.post('/webhook', async (req, res) => {
 
       delete sessions[from];
 
-      return reply(res, twiml,
-        "✅ Application Submitted!");
+      await sendMessage(from, "✅ Application Submitted!");
+      return res.sendStatus(200);
     }
 
-    return reply(res, twiml, "Type HI to start");
+    await sendMessage(from, "Type HI to start");
+    res.sendStatus(200);
 
-  } catch (error) {
-    console.error("❌ ERROR:", error.message);
-    return reply(res, twiml, "⚠️ Error occurred");
+  } catch (err) {
+    console.error("❌ ERROR:", err.message);
+    res.sendStatus(500);
   }
 });
 
 // ================= SERVER =================
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+app.listen(process.env.PORT || 3000, () => {
+  console.log("🚀 Server running");
 });
